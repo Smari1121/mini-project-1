@@ -21,10 +21,10 @@ static void reveal_dir(const char *base_path, const char *prefix, bool show_hidd
     int cap = 0;
 
     while ((dir = readdir(d)) != NULL) {
-        if (!show_hidden && dir->d_name[0] == '.') continue;
-        if (recursive && (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)) {
+        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) {
             continue;
         }
+        if (!show_hidden && dir->d_name[0] == '.') continue;
 
         if (count >= cap) {
             cap = cap ? cap * 2 : 32;
@@ -52,12 +52,16 @@ static void reveal_dir(const char *base_path, const char *prefix, bool show_hidd
         }
 
         if (recursive && is_dir) {
-            printf("%s%s/\n", prefix, entries[i]);
+            int has_space = (strchr(entries[i], ' ') != NULL);
+            if (has_space) printf("%s'%s/'\n", prefix, entries[i]);
+            else printf("%s%s/\n", prefix, entries[i]);
             char next_prefix[PATH_MAX];
             snprintf(next_prefix, sizeof(next_prefix), "%s%s/", prefix, entries[i]);
             reveal_dir(full_path, next_prefix, show_hidden, recursive);
         } else {
-            printf("%s%s\n", prefix, entries[i]);
+            int has_space = (strchr(entries[i], ' ') != NULL);
+            if (has_space) printf("%s'%s'\n", prefix, entries[i]);
+            else printf("%s%s\n", prefix, entries[i]);
         }
         
         free(entries[i]);
@@ -69,32 +73,35 @@ int execute_reveal(char **args, int arg_count, shell_state_t *state) {
     bool show_hidden = false;
     bool recursive = false;
     const char *target = NULL;
-    int target_count = 0;
+
+    int seen_target = 0;
 
     for (int i = 0; i < arg_count; i++) {
-        if (args[i][0] == '-') {
-            if (args[i][1] == '\0') {
-                target = args[i];
-                target_count++;
-            } else {
-                for (int j = 1; args[i][j] != '\0'; j++) {
-                    if (args[i][j] == 'a') show_hidden = true;
-                    else if (args[i][j] == 't') recursive = true;
-                    else {
-                        fprintf(stderr, "reveal: invalid syntax\n");
-                        return 1;
-                    }
+        if (args[i][0] == '-' && args[i][1] != '\0') {
+            if (seen_target) {
+                fprintf(stderr, "reveal: invalid syntax\n");
+                return 1;
+            }
+            for (int j = 1; args[i][j] != '\0'; j++) {
+                if (args[i][j] == 'a') show_hidden = true;
+                else if (args[i][j] == 't') recursive = true;
+                else {
+                    fprintf(stderr, "reveal: invalid syntax\n");
+                    return 1;
                 }
             }
         } else {
-            target = args[i];
-            target_count++;
+            if (seen_target) {
+                fprintf(stderr, "reveal: invalid syntax\n");
+                return 1;
+            }
+            if (args[i][0] == '-' && args[i][1] == '\0') {
+                target = args[i];
+            } else {
+                target = args[i];
+            }
+            seen_target = 1;
         }
-    }
-
-    if (target_count > 1) {
-        fprintf(stderr, "reveal: invalid syntax\n");
-        return 1;
     }
 
     char resolved_path[PATH_MAX];

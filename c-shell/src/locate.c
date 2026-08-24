@@ -19,7 +19,7 @@ int execute_locate(char **args, int arg_count, shell_state_t *state) {
         const char *cmd = args[i];
         int found = 0;
 
-        char full_path[PATH_MAX];
+        char full_path[PATH_MAX * 3];
         snprintf(full_path, sizeof(full_path), "%s/%s", cwd, cmd);
         
         struct stat st;
