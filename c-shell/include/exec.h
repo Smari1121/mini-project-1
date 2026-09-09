@@ -10,5 +10,10 @@ typedef struct {
 } shell_state_t;
 
 void execute_line(token_list_t *list, shell_state_t *state);
+void init_jobs(void);
+void cleanup_jobs(void);
+int check_stopped_jobs(void);
+void kill_all_jobs(void);
+extern int ctrl_d_pressed;
 
 #endif
