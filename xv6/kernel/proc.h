@@ -106,4 +106,10 @@ struct proc {
   uint enqueue_time;           // Ticket for queue insertion order
 #endif
   char name[16];               // Process name (debugging)
+  uint ctime;                  // Creation time
+  uint rtime;                  // Running time
+  uint retime;                 // Ready time
+  uint slptime;                // Sleeping time
+  uint first_run_time;         // First time it got the CPU
+  int is_first_run;            // Flag for first run
 };

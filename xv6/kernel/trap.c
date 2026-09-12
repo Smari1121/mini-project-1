@@ -110,7 +110,7 @@ usertrap(void)
       release(&p->lock);
       if (should_yield) yield();
     }
-#else
+#elif !defined(FIFO)
     yield();
 #endif
   }
@@ -211,7 +211,7 @@ kerneltrap()
     }
     release(&p->lock);
     if (should_yield) yield();
-#else
+#elif !defined(FIFO)
     yield();
 #endif
   }
@@ -241,6 +241,17 @@ clockintr()
 #endif
     wakeup(&ticks);
     release(&tickslock);
+    
+    // Update process metrics (outside tickslock to avoid locking order violation)
+    extern struct proc proc[];
+    struct proc *p;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNING) p->rtime++;
+      else if(p->state == RUNNABLE) p->retime++;
+      else if(p->state == SLEEPING) p->slptime++;
+      release(&p->lock);
+    }
   }
 #ifdef MLFQ
   if (do_boost) {

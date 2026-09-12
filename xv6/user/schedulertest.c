@@ -2,59 +2,51 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
-#define NPROCS 4
-#define CPU_BURST 200000
+#define CPU_BURST 5000000
 
 static void cpu_hog(int id, int bursts) {
   int pid = getpid();
-  int start = uptime();
   for (int b = 0; b < bursts; b++) {
     for (volatile int i = 0; i < CPU_BURST; i++)
       ;
-    printf("pid=%d id=%d burst=%d tick=%d\n", pid, id, b, uptime());
+    // Just burning CPU
   }
-  int end = uptime();
-  printf("pid=%d id=%d done turnaround=%d\n", pid, id, end - start);
+  printf("schedulertest: cpu hog id=%d pid=%d done\n", id, pid);
   exit(0);
 }
 
-static void io_sim(int id, int iters) {
+static void io_bound(int id, int iters, int burst_fraction) {
   int pid = getpid();
-  int start = uptime();
   for (int i = 0; i < iters; i++) {
-    for (volatile int j = 0; j < CPU_BURST / 8; j++)
+    for (volatile int j = 0; j < CPU_BURST / burst_fraction; j++)
       ;
-    pause(1);
-    printf("pid=%d id=%d iter=%d tick=%d\n", pid, id, i, uptime());
+    pause(1); // Voluntary yield
   }
-  int end = uptime();
-  printf("pid=%d id=%d done turnaround=%d\n", pid, id, end - start);
+  printf("schedulertest: io bound id=%d pid=%d done\n", id, pid);
   exit(0);
 }
 
 int main(void) {
-  int pids[NPROCS];
+  int pids[5];
   int start = uptime();
 
-  printf("schedulertest: starting %d processes at tick=%d\n", NPROCS, start);
+  printf("schedulertest: starting at tick %d\n", start);
 
-  for (int i = 0; i < NPROCS; i++) {
-    int pid = fork();
-    if (pid == 0) {
-      if (i < 2)
-        cpu_hog(i, 8);
-      else
-        io_sim(i, 8);
-    }
-    pids[i] = pid;
+  // CPU bound, long bursts
+  if ((pids[0] = fork()) == 0) cpu_hog(0, 10);
+  if ((pids[1] = fork()) == 0) cpu_hog(1, 10);
+
+  // I/O bound, frequent yields
+  if ((pids[2] = fork()) == 0) io_bound(2, 50, 100);
+  
+  // Mixed
+  if ((pids[3] = fork()) == 0) io_bound(3, 20, 10);
+  if ((pids[4] = fork()) == 0) io_bound(4, 20, 10);
+
+  for (int i = 0; i < 5; i++) {
+    wait(0);
   }
 
-  for (int i = 0; i < NPROCS; i++) {
-    int status;
-    wait(&status);
-  }
-
-  int end = uptime();
-  printf("schedulertest: all done, total ticks=%d\n", end - start);
+  printf("schedulertest: all done in %d ticks\n", uptime() - start);
   exit(0);
 }

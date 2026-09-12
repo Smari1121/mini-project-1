@@ -160,6 +160,15 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  acquire(&tickslock);
+  p->ctime = ticks;
+  release(&tickslock);
+  p->rtime = 0;
+  p->retime = 0;
+  p->slptime = 0;
+  p->is_first_run = 1;
+  p->first_run_time = 0;
+
   return p;
 }
 
@@ -379,6 +388,15 @@ kexit(int status)
 
   acquire(&p->lock);
 
+  // Print metrics for the report table
+  if (p->pid > 2) { // Skip init(1) and sh(2)
+    acquire(&tickslock);
+    uint total_ticks = ticks;
+    release(&tickslock);
+    printk("METRICS PID %d: Turnaround=%d Wait=%d Response=%d\n", 
+           p->pid, total_ticks - p->ctime, p->retime, p->first_run_time - p->ctime);
+  }
+
   p->xstate = status;
   p->state = ZOMBIE;
 
@@ -482,6 +500,12 @@ scheduler(void)
     if (best_p) {
       acquire(&best_p->lock);
       if (best_p->state == RUNNABLE) {
+        if (best_p->is_first_run) {
+          acquire(&tickslock);
+          best_p->first_run_time = ticks;
+          release(&tickslock);
+          best_p->is_first_run = 0;
+        }
         best_p->state = RUNNING;
         c->proc = best_p;
         swtch(&c->context, &best_p->context);
@@ -495,6 +519,12 @@ scheduler(void)
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
+        if (p->is_first_run) {
+          acquire(&tickslock);
+          p->first_run_time = ticks;
+          release(&tickslock);
+          p->is_first_run = 0;
+        }
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
@@ -750,7 +780,10 @@ procdump(void)
       state = "???";
     printk("%d %s %s", p->pid, state, p->name);
 #ifdef MLFQ
-    printk(" | prio: %d, ticks: %d, boost in: %d", p->priority, p->ticks_consumed, 48 - ticks_since_boost);
+    acquire(&tickslock);
+    uint curr_ticks = ticks;
+    release(&tickslock);
+    printk(" | prio: %d, ticks: %d, boost in: %d, global_tick: %d", p->priority, p->ticks_consumed, 48 - ticks_since_boost, curr_ticks);
 #endif
     printk("\n");
   }

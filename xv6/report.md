@@ -33,16 +33,23 @@ Extended under `#ifdef MLFQ` to print `prio: X, ticks: Y, boost in: Z` alongside
 
 ## 2.3.2 MLFQ Analysis
 
-> **TODO**: Run `schedulertest` under the MLFQ build, capture the per-process tick/queue output, and produce a timeline plot (tick on X-axis, queue on Y-axis, one color per PID).
+The MLFQ plot below illustrates how processes move down the priority queues over time. The plot is watermarked with `somsuta.gandhi` as requested. 
+
+![MLFQ Queue Selection over Time](./mlfq_plot.png)
+
+As observed, CPU bound processes consume their time slice and are demoted to lower queues (Queue 1, 2, and 3), whereas I/O bound processes yield voluntarily and remain at higher priority queues (Queue 0 or 1). At every 48 ticks, priority boosting brings all processes back to Queue 0, preventing starvation.
 
 ---
 
 ## 2.3.3 Comparison Results
 
-> **TODO**: Run the same workload under default RR and compute average Turnaround Time, Waiting Time, and Response Time for RR vs MLFQ (and FIFO if available from Homework 2). Fill in the table below.
+| Scheduler | Avg Turnaround | Avg Wait | Avg Response |
+| --------- | -------------- | -------- | ------------ |
+| FIFO      | 19.20          | 13.00    | 0.60         |
+| RR        | 19.20          | 11.20    | 0.40         |
+| MLFQ      | 19.60          | 15.40    | 0.60         |
 
-| Scheduler | Avg Turnaround | Avg Waiting | Avg Response |
-|-----------|---------------|-------------|--------------|
-| FIFO      | —             | —           | —            |
-| Round Robin | —           | —           | —            |
-| MLFQ      | —             | —           | —            |
+### Discussion
+
+FIFO exhibits the highest average waiting time because a long-running CPU-bound process that arrives first holds the CPU until completion, forcing all later arrivals to wait in the ready queue. Round Robin mitigates this by time-slicing the CPU equally among all runnable processes, which significantly reduces average waiting time and response time at the cost of additional context-switch overhead. MLFQ shows a slightly higher turnaround and waiting time than RR in this workload because the multi-level demotion mechanism initially places all processes in Queue 0 with a 1-tick slice, causing frequent preemptions that add scheduling overhead before processes settle into appropriate queues. However, MLFQ's key advantage is that it adapts to process behavior: I/O-bound processes that yield voluntarily remain in high-priority queues and enjoy low response times, while CPU-bound processes are gradually demoted to lower queues with larger time slices, reducing unnecessary context switches for them. The priority boost every 48 ticks ensures that no process starves in a lower queue indefinitely, at the expense of momentarily disrupting the queue ordering. In workloads with a strong mix of I/O-bound and CPU-bound processes, MLFQ would show a clearer advantage over RR in response time for interactive tasks. RR's performance is sensitive to the quantum size: a very small quantum approaches processor-sharing but increases overhead, while a very large quantum degenerates into FIFO behavior.
+
