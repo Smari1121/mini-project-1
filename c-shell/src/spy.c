@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <limits.h>
+#include <signal.h>
+#include <errno.h>
 
 static const char *get_file_type(const char *path) {
     struct stat st;
@@ -39,6 +41,11 @@ void execute_spy(char **args, int arg_count) {
     struct stat st;
     if (stat(proc_path, &st) == -1) {
         printf("spy: no such process\n");
+        return;
+    }
+    
+    if (kill(target_pid, 0) == -1 && errno == EPERM) {
+        printf("spy: permission denied\n");
         return;
     }
 

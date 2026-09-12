@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 
 int ctrl_d_pressed = 0;
 
@@ -25,6 +26,11 @@ int main(void)
         print_prompt(state.home_dir);
         ssize_t nread = getline(&line, &len, stdin);
         if (nread == -1) {
+            if (errno == EINTR) {
+                printf("\n");
+                clearerr(stdin);
+                continue;
+            }
             if (check_stopped_jobs() && !ctrl_d_pressed) {
                 printf("\ncshell: there are stopped jobs\n");
                 ctrl_d_pressed = 1;

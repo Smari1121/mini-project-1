@@ -116,6 +116,8 @@ void sigchld_handler(int sig) {
     errno = saved_errno;
 }
 
+static void empty_sigint_handler(int sig) { (void)sig; }
+
 void init_jobs(void) {
     for (int i = 0; i < MAX_JOBS; i++) jobs[i].active = 0;
 
@@ -126,7 +128,12 @@ void init_jobs(void) {
         while (tcgetpgrp(shell_terminal) != (shell_pgid = getpgrp()))
             kill(-shell_pgid, SIGTTIN);
 
-        signal(SIGINT, SIG_IGN);
+        struct sigaction sa_int;
+        sa_int.sa_handler = empty_sigint_handler;
+        sigemptyset(&sa_int.sa_mask);
+        sa_int.sa_flags = 0;
+        sigaction(SIGINT, &sa_int, NULL);
+
         signal(SIGTSTP, SIG_IGN);
         signal(SIGTTOU, SIG_IGN);
         signal(SIGQUIT, SIG_IGN);
@@ -154,16 +161,14 @@ void cleanup_jobs(void) {
         if (!jobs[i].active) continue;
         if (job_is_completed(&jobs[i])) {
             /* Print exit notifications for bg job processes that haven't been reported yet */
-            if (jobs[i].is_bg) {
-                for (int j = 0; j < jobs[i].num_procs; j++) {
-                    if (!jobs[i].procs[j].notified) {
-                        int status = jobs[i].procs[j].exit_status;
-                        int normal = WIFEXITED(status) && WEXITSTATUS(status) == 0;
-                        printf("%s with pid %d exited %s\n",
-                               jobs[i].procs[j].name, jobs[i].procs[j].pid,
-                               normal ? "normally" : "abnormally");
-                        jobs[i].procs[j].notified = 1;
-                    }
+            if (jobs[i].is_bg && jobs[i].num_procs > 0) {
+                if (!jobs[i].procs[0].notified) {
+                    int status = jobs[i].procs[0].exit_status;
+                    int normal = WIFEXITED(status);
+                    printf("%s with pid %d exited %s\n",
+                           jobs[i].procs[0].name, jobs[i].procs[0].pid,
+                           normal ? "normally" : "abnormally");
+                    jobs[i].procs[0].notified = 1;
                 }
             }
             jobs[i].active = 0;
@@ -235,11 +240,12 @@ static int wait_for_job(int job_id) {
         job->is_bg = 1; /* keep tracking it */
         return -1;
     } else if (job_is_completed(job)) {
-        /* Check if the last process exited with failure */
-        int last_status = job->procs[job->num_procs - 1].exit_status;
+        /* Check if any process failed to execute (exit status 127) */
         int failed = 0;
-        if (WIFEXITED(last_status) && WEXITSTATUS(last_status) != 0) failed = 1;
-        if (WIFSIGNALED(last_status)) failed = 1;
+        for (int i = 0; i < job->num_procs; i++) {
+            int st = job->procs[i].exit_status;
+            if (WIFEXITED(st) && WEXITSTATUS(st) == 127) failed = 1;
+        }
         job->active = 0;
         return failed;
     }
@@ -676,7 +682,7 @@ static int execute_single_command(token_list_t *list, int start, int end, shell_
 
     if (!found) {
         fprintf(stderr, "cshell: command not found (%s)\n", cmd_name);
-        if (is_forked) _exit(1);
+        if (is_forked) _exit(127);
         RESTORE_FDS();
         return 0;
     }
