@@ -3,6 +3,8 @@
 #include "peek.h"
 #include "reveal.h"
 #include "locate.h"
+#include "spy.h"
+#include "snoop.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -614,6 +616,12 @@ static int execute_single_command(token_list_t *list, int start, int end, shell_
     } else if (!skip_cwd && strcmp(cmd_name, "ping") == 0) {
         execute_ping(args + 1, arg_count - 1);
         is_builtin = 1;
+    } else if (!skip_cwd && strcmp(cmd_name, "spy") == 0) {
+        execute_spy(args + 1, arg_count - 1);
+        is_builtin = 1;
+    } else if (!skip_cwd && strcmp(cmd_name, "snoop") == 0) {
+        execute_snoop(args + 1, arg_count - 1);
+        is_builtin = 1;
     }
 
     if (is_builtin) {
@@ -692,7 +700,8 @@ static int is_builtin_name(const char *name) {
     return (strcmp(name, "hop") == 0 || strcmp(name, "reveal") == 0 ||
             strcmp(name, "peek") == 0 || strcmp(name, "locate") == 0 ||
             strcmp(name, "activities") == 0 || strcmp(name, "resume") == 0 ||
-            strcmp(name, "ping") == 0);
+            strcmp(name, "ping") == 0 || strcmp(name, "spy") == 0 ||
+            strcmp(name, "snoop") == 0);
 }
 
 /* Helper: extract first command name from a token range */
