@@ -1,1 +1,0 @@
-locate man java nada

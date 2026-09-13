@@ -2,48 +2,69 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
-#define CPU_BURST 5000000
-
+// CPU-bound: burns CPU for many ticks, will get demoted through queues
 static void cpu_hog(int id, int bursts) {
   int pid = getpid();
+  printf("schedulertest: cpu_hog id=%d pid=%d started\n", id, pid);
   for (int b = 0; b < bursts; b++) {
-    for (volatile int i = 0; i < CPU_BURST; i++)
+    for (volatile int i = 0; i < 5000000; i++)
       ;
-    // Just burning CPU
   }
-  printf("schedulertest: cpu hog id=%d pid=%d done\n", id, pid);
+  printf("schedulertest: cpu_hog id=%d pid=%d done\n", id, pid);
   exit(0);
 }
 
+// I/O-bound: short CPU bursts followed by voluntary yields (sleep)
+// Should stay at high priority queues
 static void io_bound(int id, int iters, int burst_fraction) {
   int pid = getpid();
+  printf("schedulertest: io_bound id=%d pid=%d started\n", id, pid);
   for (int i = 0; i < iters; i++) {
-    for (volatile int j = 0; j < CPU_BURST / burst_fraction; j++)
+    for (volatile int j = 0; j < 5000000 / burst_fraction; j++)
       ;
-    pause(1); // Voluntary yield
+    pause(1); // Voluntary yield — sleeps for 1 tick
   }
-  printf("schedulertest: io bound id=%d pid=%d done\n", id, pid);
+  printf("schedulertest: io_bound id=%d pid=%d done\n", id, pid);
+  exit(0);
+}
+
+// Mixed: alternates between CPU bursts and I/O
+static void mixed(int id, int rounds) {
+  int pid = getpid();
+  printf("schedulertest: mixed id=%d pid=%d started\n", id, pid);
+  for (int r = 0; r < rounds; r++) {
+    // CPU burst
+    for (volatile int i = 0; i < 5000000; i++)
+      ;
+    // Then yield
+    pause(2);
+  }
+  printf("schedulertest: mixed id=%d pid=%d done\n", id, pid);
   exit(0);
 }
 
 int main(void) {
-  int pids[5];
+  int n = 5;
   int start = uptime();
 
   printf("schedulertest: starting at tick %d\n", start);
 
-  // CPU bound, long bursts
-  if ((pids[0] = fork()) == 0) cpu_hog(0, 10);
-  if ((pids[1] = fork()) == 0) cpu_hog(1, 10);
+  // Process 0: CPU-bound, long running — should get demoted to queue 3
+  if (fork() == 0) cpu_hog(0, 10);
 
-  // I/O bound, frequent yields
-  if ((pids[2] = fork()) == 0) io_bound(2, 50, 100);
-  
-  // Mixed
-  if ((pids[3] = fork()) == 0) io_bound(3, 20, 10);
-  if ((pids[4] = fork()) == 0) io_bound(4, 20, 10);
+  // Process 1: CPU-bound, medium — should get demoted to queue 2-3
+  if (fork() == 0) cpu_hog(1, 6);
 
-  for (int i = 0; i < 5; i++) {
+  // Process 2: I/O-bound, frequent yields — should stay in queue 0
+  if (fork() == 0) io_bound(2, 40, 100);
+
+  // Process 3: Mixed behavior — should oscillate between queues
+  if (fork() == 0) mixed(3, 8);
+
+  // Process 4: I/O-bound, moderate — should stay in queue 0-1
+  if (fork() == 0) io_bound(4, 30, 50);
+
+  for (int i = 0; i < n; i++) {
     wait(0);
   }
 

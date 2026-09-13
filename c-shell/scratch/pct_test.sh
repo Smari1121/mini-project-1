@@ -1,3 +1,0 @@
-%hop
-%reveal
-%echo hello

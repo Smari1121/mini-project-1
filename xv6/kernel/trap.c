@@ -93,21 +93,32 @@ usertrap(void)
       else if (p->priority == 3) max_slice = 16;
       
       int should_yield = 0;
+      int current_priority = p->priority;
       if (p->ticks_consumed >= max_slice) {
         p->ticks_consumed = 0;
         if (p->priority < 3) p->priority++;
         should_yield = 1;
-      } else {
+      }
+      release(&p->lock);
+      
+      // Preemption check: scan with proper locking to avoid data race
+      // on scan->state and scan->priority (xv6 invariant: p->lock
+      // must be held when reading p->state).
+      // Release p->lock first to avoid nested proc lock deadlock.
+      if (!should_yield) {
         extern struct proc proc[];
         struct proc *scan;
         for (scan = proc; scan < &proc[NPROC]; scan++) {
-          if (scan->state == RUNNABLE && scan->priority < p->priority) {
+          if (scan == p) continue;
+          acquire(&scan->lock);
+          if (scan->state == RUNNABLE && scan->priority < current_priority) {
             should_yield = 1;
+            release(&scan->lock);
             break;
           }
+          release(&scan->lock);
         }
       }
-      release(&p->lock);
       if (should_yield) yield();
     }
 #elif !defined(FIFO)
@@ -195,21 +206,32 @@ kerneltrap()
     else if (p->priority == 3) max_slice = 16;
     
     int should_yield = 0;
+    int current_priority = p->priority;
     if (p->ticks_consumed >= max_slice) {
       p->ticks_consumed = 0;
       if (p->priority < 3) p->priority++;
       should_yield = 1;
-    } else {
+    }
+    release(&p->lock);
+    
+    // Preemption check: scan with proper locking to avoid data race
+    // on scan->state and scan->priority (xv6 invariant: p->lock
+    // must be held when reading p->state).
+    // Release p->lock first to avoid nested proc lock deadlock.
+    if (!should_yield) {
       extern struct proc proc[];
       struct proc *scan;
       for (scan = proc; scan < &proc[NPROC]; scan++) {
-        if (scan->state == RUNNABLE && scan->priority < p->priority) {
+        if (scan == p) continue;
+        acquire(&scan->lock);
+        if (scan->state == RUNNABLE && scan->priority < current_priority) {
           should_yield = 1;
+          release(&scan->lock);
           break;
         }
+        release(&scan->lock);
       }
     }
-    release(&p->lock);
     if (should_yield) yield();
 #elif !defined(FIFO)
     yield();

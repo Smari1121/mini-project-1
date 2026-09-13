@@ -498,6 +498,56 @@ scheduler(void)
     }
 
     if (best_p) {
+      int log_pid = 0, log_prio = 0;
+      uint log_tick = 0;
+      acquire(&best_p->lock);
+      if (best_p->state == RUNNABLE) {
+        if (best_p->is_first_run) {
+          acquire(&tickslock);
+          best_p->first_run_time = ticks;
+          release(&tickslock);
+          best_p->is_first_run = 0;
+        }
+        best_p->state = RUNNING;
+        c->proc = best_p;
+        // Save values for MLFQ_LOG before context switch
+        log_pid = best_p->pid;
+        log_prio = best_p->priority;
+        acquire(&tickslock);
+        log_tick = ticks;
+        release(&tickslock);
+        swtch(&c->context, &best_p->context);
+        mycpu()->intena = 0;
+        c->proc = 0;
+        found = 1;
+      }
+      release(&best_p->lock);
+      // Emit MLFQ_LOG outside proc lock to avoid holding lock during printk
+      if (found && log_pid > 2) {
+        printk("MLFQ_LOG %d %d %d\n", log_tick, log_pid, log_prio);
+      }
+      // If best_p was stolen by another CPU, re-scan immediately
+      // instead of falling through to wfi
+      if (!found)
+        continue;
+    }
+
+#elif defined(FIFO)
+    struct proc *best_p = 0;
+    uint earliest_ctime = 0xffffffff;
+
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        if (p->ctime < earliest_ctime) {
+          earliest_ctime = p->ctime;
+          best_p = p;
+        }
+      }
+      release(&p->lock);
+    }
+
+    if (best_p) {
       acquire(&best_p->lock);
       if (best_p->state == RUNNABLE) {
         if (best_p->is_first_run) {
@@ -783,7 +833,10 @@ procdump(void)
     acquire(&tickslock);
     uint curr_ticks = ticks;
     release(&tickslock);
-    printk(" | prio: %d, ticks: %d, boost in: %d, global_tick: %d", p->priority, p->ticks_consumed, 48 - ticks_since_boost, curr_ticks);
+    printk(" | prio: %d, ticks_used: %d/%d, enq_ticket: %d, boost_in: %d, tick: %d",
+           p->priority, p->ticks_consumed,
+           (p->priority == 0 ? 1 : p->priority == 1 ? 4 : p->priority == 2 ? 8 : 16),
+           p->enqueue_time, 48 - ticks_since_boost, curr_ticks);
 #endif
     printk("\n");
   }

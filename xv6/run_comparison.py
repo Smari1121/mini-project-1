@@ -23,23 +23,16 @@ for sched in schedulers:
     count = 0
     
     try:
-        while True:
-            idx = child.expect([r'METRICS PID', r'schedulertest: all done'], timeout=20)
-            if idx == 1:
-                break
+        while count < 5:
+            child.expect(r'METRICS PID \d+: Turnaround=(\d+) Wait=(\d+) Response=(\d+)', timeout=20)
             
-            # Matched METRICS
-            line = child.readline().strip()
-            # print(f"Raw line: {line}")
-            m = re.search(r'Turnaround=(\d+) Wait=(\d+) Response=(\d+)', line)
-            if m:
-                t = int(m.group(1))
-                w = int(m.group(2))
-                r = int(m.group(3))
-                t_tot += t
-                w_tot += w
-                r_tot += r
-                count += 1
+            t = int(child.match.group(1))
+            w = int(child.match.group(2))
+            r = int(child.match.group(3))
+            t_tot += t
+            w_tot += w
+            r_tot += r
+            count += 1
                 
     except pexpect.TIMEOUT:
         print("Timeout waiting for schedulertest to finish")
