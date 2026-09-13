@@ -1,0 +1,2 @@
+echo "unclosed
+echo trailing\

@@ -146,7 +146,7 @@ void init_jobs(void) {
     struct sigaction sa;
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
+    sa.sa_flags = 0; /* Remove SA_RESTART so getline is interrupted */
     sigaction(SIGCHLD, &sa, NULL);
 
     struct sigaction sa_alrm;
@@ -220,14 +220,12 @@ static void add_process_to_job(int job_idx, pid_t pid, const char *name) {
 }
 
 /* Returns 0 if the job exited successfully, nonzero otherwise */
-static int wait_for_job(int job_id) {
+static int wait_for_job(int job_id, sigset_t *suspend_mask) {
     job_t *job = get_job(job_id);
     if (!job) return -1;
 
-    sigset_t empty;
-    sigemptyset(&empty);
     while (!job_is_stopped(job) && !job_is_completed(job)) {
-        sigsuspend(&empty);
+        sigsuspend(suspend_mask);
         if (job_timed_out) break;
     }
 
@@ -322,14 +320,10 @@ static void execute_resume(char **args, int arg_count) {
         printf("resume: invalid syntax\n"); return;
     }
 
-    /* Send SIGCONT if stopped */
-    if (job_is_stopped(job)) {
-        kill(-job->pgid, SIGCONT);
-        for (int i = 0; i < job->num_procs; i++) {
-            if (job->procs[i].state == PROCESS_STOPPED)
-                job->procs[i].state = PROCESS_RUNNING;
-        }
-    }
+    sigset_t mask, oldmask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, &oldmask);
 
     if (is_fg) {
         printf("%s\n", job->cmd_line);
@@ -338,33 +332,49 @@ static void execute_resume(char **args, int arg_count) {
             tcsetpgrp(shell_terminal, job->pgid);
         }
 
+        /* Send SIGCONT if stopped (now that it has the terminal) */
+        if (job_is_stopped(job)) {
+            kill(-job->pgid, SIGCONT);
+            for (int i = 0; i < job->num_procs; i++) {
+                if (job->procs[i].state == PROCESS_STOPPED)
+                    job->procs[i].state = PROCESS_RUNNING;
+            }
+        }
+
         if (timeout > 0) {
             job_timed_out = 0;
             timeout_pgid = job->pgid;
             alarm(timeout);
 
             fg_running = 1;
-            wait_for_job((int)jid);
+            wait_for_job((int)jid, &oldmask);
             fg_running = 0;
 
             alarm(0);
             timeout_pgid = 0;
             if (job_timed_out) {
                 printf("resume: job timed out\n");
-                /* The job was SIGTERM'd; reclaim terminal */
+                
+                /* Wait for the SIGTERM'd job to actually terminate so its SIGCHLD doesn't interrupt getline later */
+                job_timed_out = 0;
+                wait_for_job((int)jid, &oldmask);
+
+                /* Reclaim terminal */
                 if (shell_is_interactive) {
                     tcsetpgrp(shell_terminal, shell_pgid);
                 }
             }
         } else {
             fg_running = 1;
-            wait_for_job((int)jid);
+            wait_for_job((int)jid, &oldmask);
             fg_running = 0;
         }
     } else {
         job->is_bg = 1;
         printf("[%d] + Running    %s\n", job->job_id, job->cmd_line);
     }
+    
+    sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
 static void execute_ping(char **args, int arg_count) {
@@ -814,8 +824,6 @@ void execute_line(token_list_t *list, shell_state_t *state)
                 signal(SIGINT, SIG_DFL);
                 signal(SIGQUIT, SIG_DFL);
                 signal(SIGTSTP, SIG_DFL);
-                signal(SIGTTIN, SIG_DFL);
-                signal(SIGTTOU, SIG_DFL);
 
                 /* Set up process group */
                 pid_t mypid = getpid();
@@ -828,6 +836,9 @@ void execute_line(token_list_t *list, shell_state_t *state)
                 if (!is_bg && shell_is_interactive) {
                     tcsetpgrp(shell_terminal, (i == 0) ? mypid : pids[0]);
                 }
+                
+                signal(SIGTTIN, SIG_DFL);
+                signal(SIGTTOU, SIG_DFL);
 
                 /* Background jobs: redirect stdin from /dev/null for first command */
                 if (is_bg && i == 0) {
@@ -885,11 +896,12 @@ void execute_line(token_list_t *list, shell_state_t *state)
             if (shell_is_interactive) {
                 tcsetpgrp(shell_terminal, jobs[job_idx].pgid);
             }
-            sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
             fg_running = 1;
-            int job_failed = wait_for_job(jobs[job_idx].job_id);
+            int job_failed = wait_for_job(jobs[job_idx].job_id, &oldmask);
             fg_running = 0;
+            
+            sigprocmask(SIG_SETMASK, &oldmask, NULL);
             if (job_failed) break; /* command failed → stop sequence */
         }
 
