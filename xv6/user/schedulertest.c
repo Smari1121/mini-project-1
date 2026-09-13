@@ -50,19 +50,19 @@ int main(void) {
   printf("schedulertest: starting at tick %d\n", start);
 
   // Process 0: CPU-bound, long running — should get demoted to queue 3
-  if (fork() == 0) cpu_hog(0, 10);
+  if (fork() == 0) cpu_hog(0, 200);
 
   // Process 1: CPU-bound, medium — should get demoted to queue 2-3
-  if (fork() == 0) cpu_hog(1, 6);
+  if (fork() == 0) cpu_hog(1, 150);
 
   // Process 2: I/O-bound, frequent yields — should stay in queue 0
-  if (fork() == 0) io_bound(2, 40, 100);
+  if (fork() == 0) io_bound(2, 150, 100);
 
   // Process 3: Mixed behavior — should oscillate between queues
-  if (fork() == 0) mixed(3, 8);
+  if (fork() == 0) mixed(3, 50);
 
   // Process 4: I/O-bound, moderate — should stay in queue 0-1
-  if (fork() == 0) io_bound(4, 30, 50);
+  if (fork() == 0) io_bound(4, 100, 50);
 
   for (int i = 0; i < n; i++) {
     wait(0);

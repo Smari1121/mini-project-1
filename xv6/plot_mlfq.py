@@ -46,7 +46,7 @@ def parse_log(filename=None):
 
     return data
 
-def plot_mlfq(data, output='mlfq_plot.png', watermark='keshvi.agrawal'):
+def plot_mlfq(data, output='mlfq_plot.png', watermark='somsuta.gandhi'):
     """Generate the MLFQ timeline scatter plot."""
     if not data:
         print("No MLFQ_LOG data found! Make sure you ran with SCHEDULER=MLFQ")
@@ -59,20 +59,22 @@ def plot_mlfq(data, output='mlfq_plot.png', watermark='keshvi.agrawal'):
     pids = sorted(set(d[1] for d in data))
     colors = plt.cm.get_cmap('tab10', max(len(pids), 1))
 
-    # Process type labels (matching schedulertest.c ordering)
-    # PIDs 1=init, 2=sh, 3+=test processes
+    # Process type labels (matching schedulertest.c fork order)
+    # PIDs 1=init, 2=sh, 3=schedulertest parent
+    # Forked children: PID 4=cpu_hog(0), 5=cpu_hog(1), 6=io_bound(2),
+    #                  7=mixed(3), 8=io_bound(4)
+    process_types = {
+        4: 'CPU-hog',
+        5: 'CPU-hog',
+        6: 'I/O-bound',
+        7: 'Mixed',
+        8: 'I/O-bound',
+    }
     labels = {}
-    for i, pid in enumerate(pids):
-        if i == 0:
-            labels[pid] = f'PID {pid} (CPU-hog)'
-        elif i == 1:
-            labels[pid] = f'PID {pid} (CPU-hog)'
-        elif i == 2:
-            labels[pid] = f'PID {pid} (I/O-bound)'
-        elif i == 3:
-            labels[pid] = f'PID {pid} (Mixed)'
-        elif i == 4:
-            labels[pid] = f'PID {pid} (I/O-bound)'
+    for pid in pids:
+        ptype = process_types.get(pid)
+        if ptype:
+            labels[pid] = f'PID {pid} ({ptype})'
         else:
             labels[pid] = f'PID {pid}'
 
@@ -82,8 +84,8 @@ def plot_mlfq(data, output='mlfq_plot.png', watermark='keshvi.agrawal'):
         pid_data = [d for d in data if d[1] == pid]
         ticks = [d[0] for d in pid_data]
         queues = [d[2] for d in pid_data]
-        ax.scatter(ticks, queues, label=labels.get(pid, f'PID {pid}'),
-                   color=colors(i), s=20, alpha=0.7, edgecolors='none')
+        ax.plot(ticks, queues, label=labels.get(pid, f'PID {pid}'),
+                color=colors(i), alpha=0.8, drawstyle='steps-post', marker='o', markersize=4)
 
     ax.set_yticks([0, 1, 2, 3])
     ax.set_yticklabels(['Queue 0\n(highest)', 'Queue 1', 'Queue 2', 'Queue 3\n(lowest)'])
@@ -95,12 +97,10 @@ def plot_mlfq(data, output='mlfq_plot.png', watermark='keshvi.agrawal'):
     ax.invert_yaxis()  # Queue 0 (highest priority) at top
 
     # Mark priority boost boundaries (every 48 ticks)
-    max_tick = max(d[0] for d in data)
-    for t in range(48, max_tick + 1, 48):
-        ax.axvline(x=t, color='red', linestyle=':', alpha=0.3, linewidth=1)
-    # Add a single label for boost lines
-    ax.axvline(x=-100, color='red', linestyle=':', alpha=0.3, linewidth=1,
-               label='Priority Boost (48 ticks)')
+    max_tick = max(d[0] for d in data) if data else 0
+    for idx, t in enumerate(range(48, max_tick + 1, 48)):
+        label = 'Priority Boost (48 ticks)' if idx == 0 else None
+        ax.axvline(x=t, color='red', linestyle=':', alpha=0.3, linewidth=1, label=label)
 
     # Re-draw legend to include boost line
     handles, lbls = ax.get_legend_handles_labels()
